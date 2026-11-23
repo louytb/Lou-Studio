@@ -111,6 +111,7 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
     var status by remember { mutableStateOf("Choose a .mogrt file to inspect its contents.") }
     var details by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
+    var importedFile by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             busy = true
@@ -121,17 +122,22 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
                     withContext(Dispatchers.IO) {
                         val stream = context.contentResolver.openInputStream(uri)
                             ?: error("Lou Studio couldn't open this file.")
-                        stream.use { MogrtPackage.inspect(it) }
+                        val libraryFile = stream.use {
+                            MogrtPackage.importToLibrary(it, java.io.File(context.filesDir, "mogrt-library"))
+                        }
+                        val inspection = libraryFile.inputStream().use { MogrtPackage.inspect(it) }
+                        libraryFile to inspection
                     }
                 }
                 busy = false
-                result.onSuccess { info ->
+                result.onSuccess { (libraryFile, info) ->
+                    importedFile = libraryFile.name
                     val kind = if (info.origin == MogrtPackage.Origin.AFTER_EFFECTS) {
                         "After Effects template detected"
                     } else {
                         "Premiere Pro or unrecognized template"
                     }
-                    status = "$kind · package inspected. This first version checks the package; it does not yet render the MOGRT."
+                    status = "$kind · saved in your Lou Studio MOGRT library. Rendering support is still being developed."
                     details = buildList {
                         add(if (info.hasManifest) "Manifest found" else "No manifest.xml found")
                         add(if (info.hasPreview) "Preview image found" else "No preview image found")
@@ -173,6 +179,9 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
         }
         Spacer(Modifier.height(10.dp))
         Text(status, style = FcType.Caption, color = Fc.Secondary, modifier = Modifier.padding(horizontal = FcSize.PanelPadding))
+        importedFile?.let { fileName ->
+            Text("Saved template: $fileName", style = FcType.Caption, color = Fc.Title, modifier = Modifier.padding(horizontal = FcSize.PanelPadding, vertical = 4.dp))
+        }
         details.forEach { item ->
             Text("• $item", style = FcType.Caption, color = Fc.Detail, modifier = Modifier.padding(horizontal = FcSize.PanelPadding, vertical = 2.dp))
         }
