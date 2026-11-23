@@ -57,6 +57,8 @@ sealed interface Panel {
     data object Voiceover : Panel
     /** Captions: make them, and their look. */
     data object Captions : Panel
+    /** Import and inspect an Adobe Motion Graphics Template. */
+    data object Mogrt : Panel
     /** Text to speech: new speech ([clip] empty) or saying a speech clip again. */
     data class Speech(val clip: ULong?) : Panel
 }
