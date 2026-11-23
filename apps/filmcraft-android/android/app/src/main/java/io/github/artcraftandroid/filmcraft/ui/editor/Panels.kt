@@ -113,6 +113,7 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
     var details by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var importedFile by remember { mutableStateOf<String?>(null) }
+    var extractedFontNames by remember { mutableStateOf<List<String>>(emptyList()) }
     var libraryFiles by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
 
     suspend fun refreshLibrary() {
@@ -124,7 +125,7 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
         }
     }
 
-    fun showInspection(info: MogrtPackage.Inspection) {
+    fun showInspection(info: MogrtPackage.Inspection, fonts: List<MogrtPackage.ExtractedFont>) {
         val kind = if (info.origin == MogrtPackage.Origin.AFTER_EFFECTS) {
             "After Effects template detected"
         } else {
@@ -135,7 +136,9 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
             add(if (info.hasManifest) "Manifest found" else "No manifest.xml found")
             add(if (info.hasPreview) "Preview image found" else "No preview image found")
             add(if (info.hasProject) "After Effects project found" else "No .aep project found")
-            add("Embedded fonts: ${info.fontFiles.size}")
+            add("Embedded fonts found: ${info.fontFiles.size}")
+            add("TrueType / OpenType fonts extracted: ${fonts.size}")
+            if (fonts.isNotEmpty()) addAll(fonts.map { "Extracted font: " + it.file.name })
             add("Graphic assets: ${info.imageFiles.size}")
             add("Media assets: ${info.mediaFiles.size}")
             add("Metadata / scripts: ${info.metadataFiles.size}")
@@ -162,13 +165,18 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
                             MogrtPackage.importToLibrary(it, libraryDirectory)
                         }
                         val inspection = libraryFile.inputStream().use { MogrtPackage.inspect(it) }
-                        libraryFile to inspection
+                        val fonts = MogrtPackage.extractEmbeddedFonts(
+                            libraryFile,
+                            java.io.File(context.filesDir, "mogrt-fonts"),
+                        )
+                        Triple(libraryFile, inspection, fonts)
                     }
                 }
                 busy = false
-                result.onSuccess { (libraryFile, info) ->
+                result.onSuccess { (libraryFile, info, fonts) ->
                     importedFile = libraryFile.name
-                    showInspection(info)
+                    extractedFontNames = fonts.map { it.file.name }
+                    showInspection(info, fonts)
                     refreshLibrary()
                 }.onFailure { error ->
                     status = error.message ?: "This file couldn't be imported as a MOGRT."
@@ -215,13 +223,18 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
                             scope.launch {
                                 val result = runCatching {
                                     withContext(Dispatchers.IO) {
-                                        file.inputStream().use { MogrtPackage.inspect(it) }
-                                    }
+                                        val inspection = file.inputStream().use { MogrtPackage.inspect(it) }
+                                    val fonts = MogrtPackage.extractEmbeddedFonts(
+                                        file,
+                                        java.io.File(context.filesDir, "mogrt-fonts"),
+                                    )
+                                    inspection to fonts
                                 }
                                 busy = false
-                                result.onSuccess {
+                                result.onSuccess { (inspection, fonts) ->
                                     importedFile = file.name
-                                    showInspection(it)
+                                    extractedFontNames = fonts.map { it.file.name }
+                                    showInspection(inspection, fonts)
                                 }.onFailure { error ->
                                     status = error.message ?: "This saved template couldn't be opened."
                                 }
