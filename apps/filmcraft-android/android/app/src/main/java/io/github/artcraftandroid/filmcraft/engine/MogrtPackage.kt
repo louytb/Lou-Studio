@@ -21,6 +21,10 @@ object MogrtPackage {
         val hasManifest: Boolean,
         val hasPreview: Boolean,
         val hasProject: Boolean,
+        val fontFiles: List<String>,
+        val imageFiles: List<String>,
+        val mediaFiles: List<String>,
+        val metadataFiles: List<String>,
     )
 
     fun inspect(input: InputStream): Inspection {
@@ -29,6 +33,10 @@ object MogrtPackage {
         var hasManifest = false
         var hasPreview = false
         var hasAep = false
+        val fonts = mutableListOf<String>()
+        val images = mutableListOf<String>()
+        val media = mutableListOf<String>()
+        val metadata = mutableListOf<String>()
         ZipInputStream(input.buffered()).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
@@ -43,6 +51,12 @@ object MogrtPackage {
                 if (lower.endsWith("manifest.xml")) hasManifest = true
                 if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")) hasPreview = true
                 if (lower.endsWith(".aep")) hasAep = true
+                when {
+                    lower.endsWith(".ttf") || lower.endsWith(".otf") || lower.endsWith(".woff") || lower.endsWith(".woff2") -> fonts.add(name)
+                    lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp") || lower.endsWith(".svg") -> images.add(name)
+                    lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.endsWith(".m4v") || lower.endsWith(".wav") || lower.endsWith(".mp3") -> media.add(name)
+                    lower.endsWith(".json") || lower.endsWith(".xml") || lower.endsWith(".jsx") || lower.endsWith(".js") -> metadata.add(name)
+                }
                 val buffer = ByteArray(8192)
                 while (true) {
                     val count = zip.read(buffer)
@@ -62,6 +76,10 @@ object MogrtPackage {
             hasManifest = hasManifest,
             hasPreview = hasPreview,
             hasProject = hasAep,
+            fontFiles = fonts.take(20),
+            imageFiles = images.take(20),
+            mediaFiles = media.take(20),
+            metadataFiles = metadata.take(20),
         )
     }
 }
