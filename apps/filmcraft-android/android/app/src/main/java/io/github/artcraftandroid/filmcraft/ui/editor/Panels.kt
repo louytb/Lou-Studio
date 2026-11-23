@@ -1,5 +1,7 @@
 package io.github.artcraftandroid.filmcraft.ui.editor
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +42,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -53,6 +56,7 @@ import io.github.artcraftandroid.filmcraft.core.transitionSample
 import io.github.artcraftandroid.filmcraft.core.filterPresets
 import io.github.artcraftandroid.filmcraft.core.transitionPresets
 import io.github.artcraftandroid.filmcraft.engine.toBitmap
+import io.github.artcraftandroid.filmcraft.engine.MogrtPackage
 import io.github.artcraftandroid.filmcraft.ui.Fc
 import io.github.artcraftandroid.filmcraft.ui.FcSize
 import io.github.artcraftandroid.filmcraft.ui.FcSlider
@@ -65,7 +69,10 @@ import io.github.artcraftandroid.filmcraft.ui.SliderLook
 import io.github.artcraftandroid.filmcraft.ui.SliderRow
 import io.github.artcraftandroid.filmcraft.ui.ToolPanel
 import io.github.artcraftandroid.filmcraft.ui.glyph
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withContext
 
 /** The open tool's panel. */
@@ -85,13 +92,84 @@ fun EditorPanel(ed: EditorController, panel: Panel, modifier: Modifier = Modifie
         Panel.TextStyle -> clip?.let { TextStylePanel(ed, it, close, modifier) }
         Panel.Voiceover -> VoiceoverPanel(ed, close, modifier)
         Panel.Captions -> CaptionsPanel(ed, close, modifier)
+        Panel.Mogrt -> MogrtPanel(close, modifier)
         is Panel.Speech -> SpeechPanel(ed, panel, close, modifier)
         is Panel.TextInput -> {}
     }
     // a panel whose clip went away closes
-    val standalone = panel is Panel.Transitions || panel == Panel.AspectRatio || panel == Panel.Voiceover || panel is Panel.TextInput || panel == Panel.Captions || panel is Panel.Speech
+    val standalone = panel is Panel.Transitions || panel == Panel.AspectRatio || panel == Panel.Voiceover || panel is Panel.TextInput || panel == Panel.Captions || panel == Panel.Mogrt || panel is Panel.Speech
     if (clip == null && !standalone) {
         LaunchedEffect(Unit) { ed.panel = null }
+    }
+}
+
+
+@Composable
+private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var status by remember { mutableStateOf("Choose a .mogrt file to inspect its contents.") }
+    var details by remember { mutableStateOf<List<String>>(emptyList()) }
+    var busy by remember { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            busy = true
+            details = emptyList()
+            status = "Inspecting MOGRT package…"
+            scope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) {
+                        val stream = context.contentResolver.openInputStream(uri)
+                            ?: error("Lou Studio couldn't open this file.")
+                        stream.use { MogrtPackage.inspect(it) }
+                    }
+                }
+                busy = false
+                result.onSuccess { info ->
+                    val kind = if (info.origin == MogrtPackage.Origin.AFTER_EFFECTS) {
+                        "After Effects template detected"
+                    } else {
+                        "Premiere Pro or unrecognized template"
+                    }
+                    status = "$kind · package inspected. This first version checks the package; it does not yet render the MOGRT."
+                    details = buildList {
+                        add(if (info.hasManifest) "Manifest found" else "No manifest.xml found")
+                        add(if (info.hasPreview) "Preview image found" else "No preview image found")
+                        add(if (info.hasProject) "After Effects project found" else "No .aep project found")
+                        addAll(info.entries.take(12))
+                    }
+                }.onFailure { error ->
+                    status = error.message ?: "This file couldn't be inspected as a MOGRT."
+                }
+            }
+        }
+    }
+    ToolPanel("MOGRT Studio", close, modifier, tag = "mogrt_panel") {
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Import static typography templates and animated motion-graphics templates. Lou Studio checks the package before compatibility and rendering support are added.",
+            style = FcType.Body,
+            color = Fc.Secondary,
+            modifier = Modifier.padding(horizontal = FcSize.PanelPadding),
+        )
+        Spacer(Modifier.height(12.dp))
+        Box(
+            Modifier.fillMaxWidth()
+                .padding(horizontal = FcSize.PanelPadding)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Fc.Raised)
+                .clickable(enabled = !busy) { picker.launch(arrayOf("*/*")) }
+                .padding(16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(if (busy) "Inspecting…" else "＋  Import a .MOGRT file", style = FcType.Body, color = Fc.Title)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(status, style = FcType.Caption, color = Fc.Secondary, modifier = Modifier.padding(horizontal = FcSize.PanelPadding))
+        details.forEach { item ->
+            Text("• $item", style = FcType.Caption, color = Fc.Detail, modifier = Modifier.padding(horizontal = FcSize.PanelPadding, vertical = 2.dp))
+        }
+        Spacer(Modifier.height(12.dp))
     }
 }
 
