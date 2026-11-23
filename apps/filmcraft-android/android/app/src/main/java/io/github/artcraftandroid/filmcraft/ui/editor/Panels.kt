@@ -136,7 +136,14 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
                         add(if (info.hasManifest) "Manifest found" else "No manifest.xml found")
                         add(if (info.hasPreview) "Preview image found" else "No preview image found")
                         add(if (info.hasProject) "After Effects project found" else "No .aep project found")
-                        addAll(info.entries.take(12))
+                        add("Embedded fonts: ${info.fontFiles.size}")
+                        add("Graphic assets: ${info.imageFiles.size}")
+                        add("Media assets: ${info.mediaFiles.size}")
+                        add("Metadata / scripts: ${info.metadataFiles.size}")
+                        if (info.fontFiles.isNotEmpty()) addAll(info.fontFiles.take(8).map { "Font: " + it })
+                        if (info.imageFiles.isNotEmpty()) addAll(info.imageFiles.take(6).map { "Graphic: " + it })
+                        if (info.mediaFiles.isNotEmpty()) addAll(info.mediaFiles.take(6).map { "Media: " + it })
+                        addAll(info.entries.filterNot { it in info.fontFiles || it in info.imageFiles || it in info.mediaFiles }.take(8))
                     }
                 }.onFailure { error ->
                     status = error.message ?: "This file couldn't be inspected as a MOGRT."
