@@ -108,22 +108,58 @@ fun EditorPanel(ed: EditorController, panel: Panel, modifier: Modifier = Modifie
 private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var status by remember { mutableStateOf("Choose a .mogrt file to inspect its contents.") }
+    val libraryDirectory = remember(context) { java.io.File(context.filesDir, "mogrt-library") }
+    var status by remember { mutableStateOf("Choose a .mogrt file to add it to your library.") }
     var details by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var importedFile by remember { mutableStateOf<String?>(null) }
+    var libraryFiles by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
+
+    suspend fun refreshLibrary() {
+        libraryFiles = withContext(Dispatchers.IO) {
+            libraryDirectory.listFiles()
+                ?.filter { it.isFile && it.extension.equals("mogrt", ignoreCase = true) }
+                ?.sortedByDescending { it.lastModified() }
+                .orEmpty()
+        }
+    }
+
+    fun showInspection(info: MogrtPackage.Inspection) {
+        val kind = if (info.origin == MogrtPackage.Origin.AFTER_EFFECTS) {
+            "After Effects template detected"
+        } else {
+            "Premiere Pro or unrecognized template"
+        }
+        status = "$kind · package inspected. Rendering support is still being developed."
+        details = buildList {
+            add(if (info.hasManifest) "Manifest found" else "No manifest.xml found")
+            add(if (info.hasPreview) "Preview image found" else "No preview image found")
+            add(if (info.hasProject) "After Effects project found" else "No .aep project found")
+            add("Embedded fonts: ${info.fontFiles.size}")
+            add("Graphic assets: ${info.imageFiles.size}")
+            add("Media assets: ${info.mediaFiles.size}")
+            add("Metadata / scripts: ${info.metadataFiles.size}")
+            if (info.fontFiles.isNotEmpty()) addAll(info.fontFiles.take(8).map { "Font: " + it })
+            if (info.imageFiles.isNotEmpty()) addAll(info.imageFiles.take(6).map { "Graphic: " + it })
+            if (info.mediaFiles.isNotEmpty()) addAll(info.mediaFiles.take(6).map { "Media: " + it })
+            addAll(info.entries.filterNot { it in info.fontFiles || it in info.imageFiles || it in info.mediaFiles }.take(8))
+        }
+    }
+
+    LaunchedEffect(libraryDirectory) { refreshLibrary() }
+
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             busy = true
             details = emptyList()
-            status = "Inspecting MOGRT package…"
+            status = "Importing and inspecting MOGRT package…"
             scope.launch {
                 val result = runCatching {
                     withContext(Dispatchers.IO) {
                         val stream = context.contentResolver.openInputStream(uri)
                             ?: error("Lou Studio couldn't open this file.")
                         val libraryFile = stream.use {
-                            MogrtPackage.importToLibrary(it, java.io.File(context.filesDir, "mogrt-library"))
+                            MogrtPackage.importToLibrary(it, libraryDirectory)
                         }
                         val inspection = libraryFile.inputStream().use { MogrtPackage.inspect(it) }
                         libraryFile to inspection
@@ -132,35 +168,19 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
                 busy = false
                 result.onSuccess { (libraryFile, info) ->
                     importedFile = libraryFile.name
-                    val kind = if (info.origin == MogrtPackage.Origin.AFTER_EFFECTS) {
-                        "After Effects template detected"
-                    } else {
-                        "Premiere Pro or unrecognized template"
-                    }
-                    status = "$kind · saved in your Lou Studio MOGRT library. Rendering support is still being developed."
-                    details = buildList {
-                        add(if (info.hasManifest) "Manifest found" else "No manifest.xml found")
-                        add(if (info.hasPreview) "Preview image found" else "No preview image found")
-                        add(if (info.hasProject) "After Effects project found" else "No .aep project found")
-                        add("Embedded fonts: ${info.fontFiles.size}")
-                        add("Graphic assets: ${info.imageFiles.size}")
-                        add("Media assets: ${info.mediaFiles.size}")
-                        add("Metadata / scripts: ${info.metadataFiles.size}")
-                        if (info.fontFiles.isNotEmpty()) addAll(info.fontFiles.take(8).map { "Font: " + it })
-                        if (info.imageFiles.isNotEmpty()) addAll(info.imageFiles.take(6).map { "Graphic: " + it })
-                        if (info.mediaFiles.isNotEmpty()) addAll(info.mediaFiles.take(6).map { "Media: " + it })
-                        addAll(info.entries.filterNot { it in info.fontFiles || it in info.imageFiles || it in info.mediaFiles }.take(8))
-                    }
+                    showInspection(info)
+                    refreshLibrary()
                 }.onFailure { error ->
-                    status = error.message ?: "This file couldn't be inspected as a MOGRT."
+                    status = error.message ?: "This file couldn't be imported as a MOGRT."
                 }
             }
         }
     }
+
     ToolPanel("MOGRT Studio", close, modifier, tag = "mogrt_panel") {
         Spacer(Modifier.height(8.dp))
         Text(
-            "Import static typography templates and animated motion-graphics templates. Lou Studio checks the package before compatibility and rendering support are added.",
+            "Import static typography templates and animated motion-graphics templates. Imported files stay in this device's private Lou Studio library.",
             style = FcType.Body,
             color = Fc.Secondary,
             modifier = Modifier.padding(horizontal = FcSize.PanelPadding),
@@ -175,12 +195,51 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
                 .padding(16.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(if (busy) "Inspecting…" else "＋  Import a .MOGRT file", style = FcType.Body, color = Fc.Title)
+            Text(if (busy) "Working…" else "＋  Import a .MOGRT file", style = FcType.Body, color = Fc.Title)
         }
         Spacer(Modifier.height(10.dp))
         Text(status, style = FcType.Caption, color = Fc.Secondary, modifier = Modifier.padding(horizontal = FcSize.PanelPadding))
         importedFile?.let { fileName ->
-            Text("Saved template: $fileName", style = FcType.Caption, color = Fc.Title, modifier = Modifier.padding(horizontal = FcSize.PanelPadding, vertical = 4.dp))
+            Text("Last imported: $fileName", style = FcType.Caption, color = Fc.Title, modifier = Modifier.padding(horizontal = FcSize.PanelPadding, vertical = 4.dp))
+        }
+        if (libraryFiles.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text("MY MOGRT LIBRARY · ${libraryFiles.size}", style = FcType.Caption, color = Fc.Title, modifier = Modifier.padding(horizontal = FcSize.PanelPadding))
+            libraryFiles.forEach { file ->
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable(enabled = !busy) {
+                            busy = true
+                            status = "Opening ${file.name}…"
+                            details = emptyList()
+                            scope.launch {
+                                val result = runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        file.inputStream().use { MogrtPackage.inspect(it) }
+                                    }
+                                }
+                                busy = false
+                                result.onSuccess {
+                                    importedFile = file.name
+                                    showInspection(it)
+                                }.onFailure { error ->
+                                    status = error.message ?: "This saved template couldn't be opened."
+                                }
+                            }
+                        }
+                        .padding(horizontal = FcSize.PanelPadding, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("▤", color = Fc.Secondary, modifier = Modifier.padding(end = 10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(file.name, style = FcType.Body, color = Fc.Title)
+                        Text("Saved MOGRT · ${file.length() / 1024} KB", style = FcType.Caption, color = Fc.Detail)
+                    }
+                    Text("›", style = FcType.Header, color = Fc.Secondary)
+                }
+            }
+        } else {
+            Text("Your imported templates will appear here.", style = FcType.Caption, color = Fc.Detail, modifier = Modifier.padding(horizontal = FcSize.PanelPadding, vertical = 12.dp))
         }
         details.forEach { item ->
             Text("• $item", style = FcType.Caption, color = Fc.Detail, modifier = Modifier.padding(horizontal = FcSize.PanelPadding, vertical = 2.dp))
