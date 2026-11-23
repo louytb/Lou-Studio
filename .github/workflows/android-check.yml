@@ -1,0 +1,56 @@
+name: Android build check
+
+on:
+  push:
+    branches:
+      - "lou-studio/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  android:
+    name: Build Lou Studio APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: lou-studio-android
+
+      - name: Install Android NDK and cargo-ndk
+        run: |
+          cargo install cargo-ndk --version 4.1.2 --locked
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865" >/dev/null
+
+      - name: Build debug APK
+        working-directory: apps/filmcraft-android/android
+        run: ./gradlew assembleDebug "-Pfilmcraft.abis=arm64-v8a" --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: lou-studio-debug-apk
+          path: apps/filmcraft-android/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
