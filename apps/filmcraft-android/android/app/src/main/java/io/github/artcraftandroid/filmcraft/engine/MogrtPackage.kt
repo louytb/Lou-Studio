@@ -1,5 +1,7 @@
 package io.github.artcraftandroid.filmcraft.engine
 
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 
@@ -26,6 +28,38 @@ object MogrtPackage {
         val mediaFiles: List<String>,
         val metadataFiles: List<String>,
     )
+
+    /**
+     * Copies an imported template into the app's private library with a strict size limit.
+     * The original is retained so a future renderer can reopen the complete package.
+     */
+    fun importToLibrary(input: InputStream, libraryDirectory: File): File {
+        require(libraryDirectory.exists() || libraryDirectory.mkdirs()) {
+            "Lou Studio couldn't create its MOGRT library."
+        }
+        val destination = File(libraryDirectory, "template-${System.currentTimeMillis()}.mogrt")
+        var total = 0L
+        try {
+            FileOutputStream(destination).use { output ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    require(total <= MAX_UNCOMPRESSED_BYTES) {
+                        "This MOGRT file is too large to import safely."
+                    }
+                    output.write(buffer, 0, count)
+                }
+                output.flush()
+            }
+            require(total > 0L) { "The selected MOGRT file is empty." }
+            return destination
+        } catch (error: Throwable) {
+            destination.delete()
+            throw error
+        }
+    }
 
     fun inspect(input: InputStream): Inspection {
         val names = mutableListOf<String>()
