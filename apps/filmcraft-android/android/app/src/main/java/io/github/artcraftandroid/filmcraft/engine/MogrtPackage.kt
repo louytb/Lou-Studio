@@ -61,6 +61,60 @@ object MogrtPackage {
         }
     }
 
+    data class ExtractedFont(val sourceEntry: String, val file: File)
+
+    /**
+     * Extracts only embedded TrueType/OpenType fonts into an app-private folder.
+     * Web fonts are listed during inspection but are not installed as Android fonts.
+     */
+    fun extractEmbeddedFonts(packageFile: File, fontDirectory: File): List<ExtractedFont> {
+        require(fontDirectory.exists() || fontDirectory.mkdirs()) {
+            "Lou Studio couldn't create its private fonts folder."
+        }
+        val extracted = mutableListOf<ExtractedFont>()
+        var total = 0L
+        try {
+            ZipInputStream(packageFile.inputStream().buffered()).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (entry.isDirectory) continue
+                    val name = entry.name.replace('\\\\', '/')
+                    require(!name.startsWith("/") && name.split('/').none { it == ".." }) {
+                        "This MOGRT contains an unsafe file path."
+                    }
+                    val lower = name.lowercase()
+                    if (!lower.endsWith(".ttf") && !lower.endsWith(".otf")) {
+                        zip.closeEntry()
+                        continue
+                    }
+                    require(extracted.size < 20) { "This MOGRT contains too many embedded fonts." }
+                    val baseName = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val destination = File(fontDirectory, "mogrt-${packageFile.nameWithoutExtension}-${extracted.size}-$baseName")
+                    FileOutputStream(destination).use { output ->
+                        val buffer = ByteArray(8192)
+                        while (true) {
+                            val count = zip.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            require(total <= MAX_UNCOMPRESSED_BYTES) {
+                                "Embedded fonts exceed the safe extraction limit."
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                        output.flush()
+                    }
+                    require(destination.length() > 0L) { "An embedded font file is empty." }
+                    extracted += ExtractedFont(name, destination)
+                    zip.closeEntry()
+                }
+            }
+            return extracted
+        } catch (error: Throwable) {
+            extracted.forEach { it.file.delete() }
+            throw error
+        }
+    }
+
     fun inspect(input: InputStream): Inspection {
         val names = mutableListOf<String>()
         var total = 0L
