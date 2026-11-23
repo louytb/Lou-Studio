@@ -113,7 +113,6 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
     var details by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var importedFile by remember { mutableStateOf<String?>(null) }
-    var extractedFontNames by remember { mutableStateOf<List<String>>(emptyList()) }
     var libraryFiles by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
 
     suspend fun refreshLibrary() {
@@ -175,7 +174,6 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
                 busy = false
                 result.onSuccess { (libraryFile, info, fonts) ->
                     importedFile = libraryFile.name
-                    extractedFontNames = fonts.map { it.file.name }
                     showInspection(info, fonts)
                     refreshLibrary()
                 }.onFailure { error ->
@@ -224,16 +222,16 @@ private fun MogrtPanel(close: () -> Unit, modifier: Modifier) {
                                 val result = runCatching {
                                     withContext(Dispatchers.IO) {
                                         val inspection = file.inputStream().use { MogrtPackage.inspect(it) }
-                                    val fonts = MogrtPackage.extractEmbeddedFonts(
-                                        file,
-                                        java.io.File(context.filesDir, "mogrt-fonts"),
-                                    )
-                                    inspection to fonts
+                                        val fonts = MogrtPackage.extractEmbeddedFonts(
+                                            file,
+                                            java.io.File(context.filesDir, "mogrt-fonts"),
+                                        )
+                                        inspection to fonts
+                                    }
                                 }
                                 busy = false
                                 result.onSuccess { (inspection, fonts) ->
                                     importedFile = file.name
-                                    extractedFontNames = fonts.map { it.file.name }
                                     showInspection(inspection, fonts)
                                 }.onFailure { error ->
                                     status = error.message ?: "This saved template couldn't be opened."
