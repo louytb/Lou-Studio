@@ -78,7 +78,7 @@ object MogrtPackage {
                 while (true) {
                     val entry = zip.nextEntry ?: break
                     if (entry.isDirectory) continue
-                    val name = entry.name.replace('\\\\', '/')
+                    val name = entry.name.replace('\\', '/')
                     require(!name.startsWith("/") && name.split('/').none { it == ".." }) {
                         "This MOGRT contains an unsafe file path."
                     }
